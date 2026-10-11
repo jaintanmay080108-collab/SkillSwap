@@ -75,11 +75,11 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
     const [[offers]] = await pool.execute('SELECT COUNT(*) AS total FROM user_offers WHERE user_id=?', [id]);
     const [[wants]] = await pool.execute('SELECT COUNT(*) AS total FROM user_wants WHERE user_id=?', [id]);
     const [[sent]] = await pool.execute('SELECT COUNT(*) AS total FROM exchange_requests WHERE sender_id=?', [id]);
-    const [[received]] = await pool.execute('SELECT COUNT(*) AS total FROM exchange_requests WHERE receiver_id=? AND status="Pending"', [id]);
+    const [[received]] = await pool.execute("SELECT COUNT(*) AS total FROM exchange_requests WHERE receiver_id=? AND status='Pending'", [id]);
     const [myOffers] = await pool.execute('SELECT s.skill_id,s.skill_name,o.proficiency_level FROM user_offers o JOIN skills s ON s.skill_id=o.skill_id WHERE o.user_id=? ORDER BY s.skill_name', [id]);
     const [myWants] = await pool.execute('SELECT s.skill_id,s.skill_name FROM user_wants w JOIN skills s ON s.skill_id=w.skill_id WHERE w.user_id=? ORDER BY s.skill_name', [id]);
     res.json({ stats: { offered: offers.total, wanted: wants.total, sent: sent.total, pending: received.total }, offers: myOffers, wants: myWants });
-  } catch (e) { console.error(e); res.status(500).json({ error: 'Could not load dashboard.' }); }
+  } catch (e) { console.error('DASHBOARD ERROR:',e); res.status(500).json({ error: 'Could not load dashboard.', details: e.message }); }
 });
 app.get('/api/my-skills', requireAuth, async (req, res) => {
   try {
