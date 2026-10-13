@@ -75,11 +75,22 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
     const [[offers]] = await pool.execute('SELECT COUNT(*) AS total FROM user_offers WHERE user_id=?', [id]);
     const [[wants]] = await pool.execute('SELECT COUNT(*) AS total FROM user_wants WHERE user_id=?', [id]);
     const [[sent]] = await pool.execute('SELECT COUNT(*) AS total FROM exchange_requests WHERE sender_id=?', [id]);
-    const [[received]] = await pool.execute("SELECT COUNT(*) AS total FROM exchange_requests WHERE receiver_id=? AND status='Pending'", [id]);
+
+const [[received]] = await pool.execute(
+  "SELECT COUNT(*) AS total FROM exchange_requests WHERE receiver_id = ? AND status = 'Pending'",
+  [id]
+);
+
     const [myOffers] = await pool.execute('SELECT s.skill_id,s.skill_name,o.proficiency_level FROM user_offers o JOIN skills s ON s.skill_id=o.skill_id WHERE o.user_id=? ORDER BY s.skill_name', [id]);
     const [myWants] = await pool.execute('SELECT s.skill_id,s.skill_name FROM user_wants w JOIN skills s ON s.skill_id=w.skill_id WHERE w.user_id=? ORDER BY s.skill_name', [id]);
     res.json({ stats: { offered: offers.total, wanted: wants.total, sent: sent.total, pending: received.total }, offers: myOffers, wants: myWants });
-  } catch (e) { console.error('DASHBOARD ERROR:',e); res.status(500).json({ error: 'Could not load dashboard.', details: e.message }); }
+  } catch (e) {
+  console.error('DASHBOARD ERROR:', e);
+  res.status(500).json({
+    error: 'Could not load dashboard.',
+    details: e.message
+  });
+}
 });
 app.get('/api/my-skills', requireAuth, async (req, res) => {
   try {
@@ -157,10 +168,57 @@ app.patch('/api/requests/:id/status', requireAuth, async (req, res) => {
     res.json({ message: 'Request status updated.' });
   } catch (e) { res.status(400).json({ error: e.sqlMessage || 'Could not update request status.' }); }
 });
-app.get('/api/videos', async (req, res) => {
-  try { const [rows] = await pool.query(`SELECT v.video_id,v.title,v.video_url,v.duration_minutes,v.upload_date,u.name AS uploader,s.skill_name,c.category_name FROM videos v JOIN users u ON u.user_id=v.user_id JOIN skills s ON s.skill_id=v.skill_id JOIN categories c ON c.category_id=s.category_id ORDER BY v.upload_date DESC LIMIT 100`); res.json(rows); }
-  catch (e) { res.status(500).json({ error: 'Could not load tutorials.' }); }
+
+
+app.get('/api/videos', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user.user_id;
+
+    const [rows] = await pool.execute(`
+      SELECT DISTINCT
+        v.video_id,
+        v.title,
+        v.video_url,
+        v.duration_minutes,
+        v.upload_date,
+        u.name AS uploader,
+        s.skill_name,
+        c.category_name
+      FROM videos v
+      JOIN users u ON u.user_id = v.user_id
+      JOIN skills s ON s.skill_id = v.skill_id
+      JOIN categories c ON c.category_id = s.category_id
+      WHERE v.user_id != ?
+        AND EXISTS (
+          SELECT 1
+          FROM exchange_requests er
+          WHERE er.status = 'Accepted'
+            AND (
+              (
+                er.sender_id = ?
+                AND er.receiver_id = v.user_id
+                AND er.requested_skill_id = v.skill_id
+              )
+              OR
+              (
+                er.receiver_id = ?
+                AND er.sender_id = v.user_id
+                AND er.offered_skill_id = v.skill_id
+              )
+            )
+        )
+      ORDER BY v.upload_date DESC
+      LIMIT 100
+    `, [userId, userId, userId]);
+
+    res.json(rows);
+  } catch (e) {
+    console.error('Tutorial loading error:', e);
+    res.status(500).json({ error: 'Could not load tutorials.' });
+  }
 });
+
+
 app.post('/api/videos', requireAuth, async (req, res) => {
   try {
     const { title, video_url, duration_minutes, skill_id } = req.body;
